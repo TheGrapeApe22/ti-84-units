@@ -38,6 +38,10 @@ static char primitive_name[DIMENSIONS][MAX_NAME];
 static uint16_t unit_count;
 static uint8_t prefix_count, primitive_count;
 static bool loaded;
+typedef struct { char name[MAX_NAME]; char definition[DEFINITION_CAPACITY]; measure_t value; } variable_t;
+static variable_t variables[UNITS_VARIABLE_CAPACITY];
+static uint8_t variable_count;
+static uint8_t significant_digits = 7;
 static void copy_text(char *out, size_t cap, const char *text) {
 	if (cap) {
 		strncpy(out, text, cap - 1);
@@ -138,6 +142,14 @@ static const unit_t *plural_unit(const char *name) {
 static bool lookup(const char *name, measure_t *out, const unit_t **matched,
 				   const prefix_t **used_prefix) {
 	unit_t *unit = (unit_t *)find_exact(name);
+	uint8_t variable_index;
+	for (variable_index = 0; variable_index < variable_count; variable_index++)
+		if (!strcmp(name, variables[variable_index].name)) {
+			*out = variables[variable_index].value;
+			if (matched) *matched = NULL;
+			if (used_prefix) *used_prefix = NULL;
+			return true;
+		}
 	const prefix_t *best_prefix = NULL;
 	size_t best = 0;
 	uint8_t i;
@@ -316,25 +328,33 @@ static bool combine(measure_t *left, const measure_t *right, bool divide) {
 	return true;
 }
 
-static bool parse_product(parser_t *p, measure_t *out) {
-	if (!parse_factor(p, out))
-		return false;
+static bool implicit_start(char c) {
+	return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == 46 || c == 40;
+}
+
+static bool parse_implicit_product(parser_t *p, measure_t *out) {
+	if (!parse_factor(p, out)) return false;
 	for (;;) {
 		measure_t right;
-		bool divide = false;
-		char next;
 		spaces(p);
-		next = *p->at;
-		if (next == '*' || next == '/') {
-			divide = next == '/';
-			p->at++;
-		} else if (!(isalpha((unsigned char)next) ||
-					 isdigit((unsigned char)next) || next == '.' ||
-					 next == '('))
-			break;
-		if (!parse_factor(p, &right))
-			return false;
-		combine(out, &right, divide);
+		if (!implicit_start(*p->at)) break;
+		if (!parse_factor(p, &right)) return false;
+		combine(out, &right, false);
+	}
+	return true;
+}
+
+static bool parse_product(parser_t *p, measure_t *out) {
+	if (!parse_implicit_product(p, out)) return false;
+	for (;;) {
+		measure_t right;
+		char operation;
+		spaces(p);
+		operation = *p->at;
+		if (operation != 42 && operation != 47) break;
+		p->at++;
+		if (!parse_implicit_product(p, &right)) return false;
+		combine(out, &right, operation == 47);
 	}
 	return true;
 }
@@ -540,6 +560,52 @@ bool units_validate_have(const char *have, char *error, size_t cap) {
 	return parse_quantity(have, &value, error, cap);
 }
 
+bool units_set_variable(const char *name, const char *definition, char *error, size_t cap) {
+	measure_t value;
+	uint8_t index;
+	size_t length = strlen(name);
+	if (!length || length >= MAX_NAME || strlen(definition) >= DEFINITION_CAPACITY) {
+		copy_text(error, cap, "Variable name or value is too long");
+		return false;
+	}
+	for (index = 0; index < length; index++)
+		if (!isalpha((unsigned char)name[index])) {
+			copy_text(error, cap, "Variable name must use letters");
+			return false;
+		}
+	for (index = 0; index < variable_count; index++)
+		if (!strcmp(name, variables[index].name)) break;
+	if (index == variable_count && lookup(name, &value, NULL, NULL)) {
+		copy_text(error, cap, "Name already used by a unit");
+		return false;
+	}
+	if (!parse_quantity(definition, &value, error, cap)) return false;
+	if (index == variable_count) {
+		if (variable_count == UNITS_VARIABLE_CAPACITY) {
+			copy_text(error, cap, "Variable list is full");
+			return false;
+		}
+		variable_count++;
+	}
+	copy_text(variables[index].name, MAX_NAME, name);
+	copy_text(variables[index].definition, DEFINITION_CAPACITY, definition);
+	variables[index].value = value;
+	return true;
+}
+
+void units_delete_variable(unsigned index) {
+	if (index >= variable_count) return;
+	if (index + 1 < variable_count)
+		memmove(&variables[index], &variables[index + 1],
+				(variable_count - index - 1) * sizeof(variables[0]));
+	variable_count--;
+}
+unsigned units_variable_count(void) { return variable_count; }
+const char *units_variable_name(unsigned index) { return index < variable_count ? variables[index].name : ""; }
+const char *units_variable_definition(unsigned index) { return index < variable_count ? variables[index].definition : ""; }
+void units_set_significant_digits(unsigned digits) { if (digits >= 2 && digits <= 7) significant_digits = (uint8_t)digits; }
+unsigned units_significant_digits(void) { return significant_digits; }
+
 static void trim_number(char *text) {
 	char *dot = strchr(text, '.'), *end;
 	if (!dot)
@@ -595,7 +661,11 @@ static void compact_number(double value, char *out, size_t cap) {
 		copy_text(out, cap, value < 0 ? "-inf" : "inf");
 		return;
 	}
-	for (precision = 6; precision >= 0; precision--) {
+	if (!absolute) { copy_text(out, cap, "0"); return; }
+	{
+		int preferred = (int)significant_digits - 1 - (int)floor(log10(absolute));
+		if (preferred > 6) preferred = 6;
+		for (precision = preferred; precision >= 0; precision--) {
 		format_fixed(candidate, sizeof(candidate), value, (uint8_t)precision);
 		trim_number(candidate);
 		if (strlen(candidate) <= 8 &&
@@ -603,14 +673,11 @@ static void compact_number(double value, char *out, size_t cap) {
 			copy_text(out, cap, candidate);
 			return;
 		}
-	}
-	if (!absolute) {
-		copy_text(out, cap, "0");
-		return;
+		}
 	}
 	exponent = (int)floor(log10(absolute));
 	scaled = value / pow(10.0, exponent);
-	format_fixed(candidate, sizeof(candidate), scaled, 6);
+	format_fixed(candidate, sizeof(candidate), scaled, significant_digits - 1);
 	{
 		const char *rounded = candidate[0] == '-' ? candidate + 1 : candidate;
 		if (rounded[0] == '1' && rounded[1] == '0' &&
@@ -620,7 +687,7 @@ static void compact_number(double value, char *out, size_t cap) {
 		}
 	}
 	snprintf(exponent_text, sizeof(exponent_text), "e%d", exponent);
-	for (precision = 6; precision >= 0; precision--) {
+	for (precision = significant_digits - 1; precision >= 0; precision--) {
 		format_fixed(mantissa, sizeof(mantissa), scaled, (uint8_t)precision);
 		trim_number(mantissa);
 		if (strlen(mantissa) + strlen(exponent_text) <= 8) {
@@ -701,6 +768,12 @@ bool units_describe(const char *have, char *result, size_t cap) {
 					display = prefixes[i].name;
 			snprintf(result, cap, "%s %s = %s", display, unit->name,
 					 normalized);
+		} else if (!unit) {
+			uint8_t i;
+			for (i = 0; i < variable_count; i++)
+				if (!strcmp(token, variables[i].name)) break;
+			if (i < variable_count) snprintf(result, cap, "%s = %s = %s", token, variables[i].definition, normalized);
+			else snprintf(result, cap, "%s = %s", token, normalized);
 		} else if (strcmp(token, unit->name))
 			snprintf(result, cap, "%s = %s = %s", unit->name, unit->definition,
 					 normalized);

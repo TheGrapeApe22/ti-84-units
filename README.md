@@ -14,10 +14,10 @@ featuring...
 
 Enter a quantity at **You have**, then a target unit at **You want**. Leave the target blank to show the definition. For example, `3 ft + 6 inch` to `m`. A unit suffix such as `cm3` means `cm^3`. In `a / b c d`, the denominator is `b*c*d`; explicit multiplication after that is evaluated left to right.
 
-The top-row keys open these pages:
+The five labels along the bottom align with the top-row function keys and open these pages:
 
 - **F1 (Y=):** Quit and save history and settings.
-- **F2 (Window):** Create or edit up to eight session variables. Enter a letter-only name, then its value as a unit expression. Up/Down selects a variable; Enter edits it; Del or Clear removes it. Variables last until the app exits.
+- **F2 (Window):** Create or edit up to eight session variables. Enter a name of 1-19 letters, then its value as a unit expression. Up/Down selects a variable; Enter edits it; Del or Clear removes it. Variables last until the app exits.
 - **F3 (Zoom):** Browse the transferred `UNITDB` database. Type to filter lines immediately; Up/Down scrolls the matches.
 - **F4 (Trace):** Help and expression rules.
 - **F5 (Graph):** Switch dark/light theme, choose 2-7 significant digits, and view credits. Theme and precision are archived and restored on the next launch. Precision applies to new results; the eight-character number limit can reduce it.

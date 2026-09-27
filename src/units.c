@@ -560,12 +560,12 @@ bool units_validate_have(const char *have, char *error, size_t cap) {
 	return parse_quantity(have, &value, error, cap);
 }
 
-bool units_set_variable(const char *name, const char *definition, char *error, size_t cap) {
+bool units_validate_variable_name(const char *name, char *error, size_t cap) {
 	measure_t value;
 	uint8_t index;
 	size_t length = strlen(name);
-	if (!length || length >= MAX_NAME || strlen(definition) >= DEFINITION_CAPACITY) {
-		copy_text(error, cap, "Variable name or value is too long");
+	if (!length || length >= MAX_NAME) {
+		copy_text(error, cap, "Variable name must be 1-19 letters");
 		return false;
 	}
 	for (index = 0; index < length; index++)
@@ -574,19 +574,30 @@ bool units_set_variable(const char *name, const char *definition, char *error, s
 			return false;
 		}
 	for (index = 0; index < variable_count; index++)
-		if (!strcmp(name, variables[index].name)) break;
-	if (index == variable_count && lookup(name, &value, NULL, NULL)) {
+		if (!strcmp(name, variables[index].name)) return true;
+	if (lookup(name, &value, NULL, NULL)) {
 		copy_text(error, cap, "Name already used by a unit");
 		return false;
 	}
-	if (!parse_quantity(definition, &value, error, cap)) return false;
-	if (index == variable_count) {
-		if (variable_count == UNITS_VARIABLE_CAPACITY) {
-			copy_text(error, cap, "Variable list is full");
-			return false;
-		}
-		variable_count++;
+	if (variable_count == UNITS_VARIABLE_CAPACITY) {
+		copy_text(error, cap, "Variable list is full (8 max)");
+		return false;
 	}
+	return true;
+}
+
+bool units_set_variable(const char *name, const char *definition, char *error, size_t cap) {
+	measure_t value;
+	uint8_t index;
+	if (!units_validate_variable_name(name, error, cap)) return false;
+	if (strlen(definition) >= DEFINITION_CAPACITY) {
+		copy_text(error, cap, "Variable value is too long");
+		return false;
+	}
+	if (!parse_quantity(definition, &value, error, cap)) return false;
+	for (index = 0; index < variable_count; index++)
+		if (!strcmp(name, variables[index].name)) break;
+	if (index == variable_count) variable_count++;
 	copy_text(variables[index].name, MAX_NAME, name);
 	copy_text(variables[index].definition, DEFINITION_CAPACITY, definition);
 	variables[index].value = value;

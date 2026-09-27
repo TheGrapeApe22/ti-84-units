@@ -423,6 +423,20 @@ static void print_at(const char *text, int x, int y, uint8_t color) {
 	gfx_PrintString(text);
 }
 
+static void draw_bottom_menu(void) {
+	static const char *labels[5] = {"Quit", "Var", "DB", "Help", "Set"};
+	uint8_t index;
+	gfx_SetColor(COLOR_PANEL);
+	gfx_FillRectangle(0, 220, 320, 20);
+	for (index = 0; index < 5; index++) {
+		bool active = (index == 1 && page == PAGE_VARIABLES) ||
+			(index == 2 && page == PAGE_DATABASE) ||
+			(index == 3 && page == PAGE_HELP) ||
+			(index == 4 && (page == PAGE_SETTINGS || page == PAGE_CREDITS));
+		print_at(labels[index], 16 + 64 * index, 225, active ? COLOR_ACCENT : COLOR_TEXT);
+	}
+}
+
 static uint8_t wrapped_length(const char *text, unsigned int width) {
 	char line[INPUT_CAPACITY + 1];
 	uint8_t length = 0;
@@ -454,7 +468,7 @@ static int draw_wrapped(const char *text, int x, int y, unsigned int width,
 	return y;
 }
 
-static void cursor_location(int *x, int *y) {
+static void cursor_location(int *x, int *y, int base_y) {
 	const char *at = input;
 	uint8_t consumed = 0, row = 0, length, prefix_length;
 	char prefix[INPUT_CAPACITY + 1];
@@ -465,7 +479,7 @@ static void cursor_location(int *x, int *y) {
 			memcpy(prefix, at, prefix_length);
 			prefix[prefix_length] = '\0';
 			*x = 20 + gfx_GetStringWidth(prefix);
-			*y = 194 + row * 18;
+			*y = base_y + row * 18;
 			return;
 		}
 		consumed += length;
@@ -473,7 +487,7 @@ static void cursor_location(int *x, int *y) {
 		row++;
 	}
 	*x = 20;
-	*y = 212;
+	*y = base_y + 18;
 }
 
 static uint8_t wrapped_line_count(const char *text, unsigned int width,
@@ -496,7 +510,7 @@ static void history_layout(uint8_t index, char *line, uint8_t *command_lines,
 		copy_text(line, INPUT_CAPACITY * 2 + 5, history[index].have);
 	*command_lines = wrapped_line_count(line, 296, 3);
 	*result_lines =
-		wrapped_line_count(history[index].result, 296, 5 - *command_lines);
+		wrapped_line_count(history[index].result, 296, 4 - *command_lines);
 }
 
 static uint8_t history_height(uint8_t index) {
@@ -515,11 +529,11 @@ static void draw_calculator(void) {
 		first = last;
 		used = history_height(first);
 		while (last + 1 < history_count &&
-			   used + history_height(last + 1) <= 108) {
+			   used + history_height(last + 1) <= 88) {
 			last++;
 			used += history_height(last);
 		}
-		while (first && used + history_height(first - 1) <= 108) {
+		while (first && used + history_height(first - 1) <= 88) {
 			first--;
 			used += history_height(first);
 		}
@@ -527,9 +541,7 @@ static void draw_calculator(void) {
 	gfx_FillScreen(COLOR_BACKGROUND);
 	gfx_SetColor(COLOR_PANEL);
 	gfx_FillRectangle(0, 0, 320, 24);
-	print_at("F1 Quit F2 Var F3 DB F4 ? F5 Set", 8, 8, COLOR_TEXT);
-	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270,
-			 8, COLOR_ACCENT);
+	print_at("units", 8, 8, COLOR_TEXT);
 	if (history_count)
 		for (index = first; index <= last; index++) {
 			char line[INPUT_CAPACITY * 2 + 5];
@@ -555,19 +567,20 @@ static void draw_calculator(void) {
 		}
 	}
 	gfx_SetColor(COLOR_PANEL);
-	gfx_FillRectangle(0, 136, 320, 104);
+	gfx_FillRectangle(0, 116, 320, 104);
 	if (prompt_error[0])
-		draw_wrapped(prompt_error, 8, 140, 304, 2, COLOR_ACCENT);
+		draw_wrapped(prompt_error, 8, 120, 304, 2, COLOR_ACCENT);
 	else if (prompt == PROMPT_WANT) {
 		char have_line[INPUT_CAPACITY + 7];
 		snprintf(have_line, sizeof(have_line), "You have: %s", pending_have);
-		draw_wrapped(have_line, 8, 140, 304, 2, COLOR_MUTED);
+		draw_wrapped(have_line, 8, 120, 304, 2, COLOR_MUTED);
 	}
-	print_at(prompt == PROMPT_WANT ? "You want:" : "You have:", 8, 177,
+	print_at(prompt == PROMPT_WANT ? "You want:" : "You have:", 8, 157,
 			 COLOR_MUTED);
-	print_at(">", 8, 197, COLOR_ACCENT);
-	draw_wrapped(input, 20, 197, 292, 2, COLOR_TEXT);
-	cursor_location(&cursor_x, &cursor_y);
+	print_at(">", 8, 177, COLOR_ACCENT);
+	draw_wrapped(input, 20, 177, 292, 2, COLOR_TEXT);
+	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 157, COLOR_ACCENT);
+	cursor_location(&cursor_x, &cursor_y, 174);
 	gfx_SetColor(COLOR_ACCENT);
 	gfx_VertLine(cursor_x, cursor_y, 18);
 }
@@ -681,16 +694,9 @@ static void handle_variable_key(uint8_t key) {
 	}
 	if (key == sk_Enter) {
 		if (variable_stage == VARIABLE_NAME) {
-			if (!input_length || input_length >= sizeof(variable_name)) {
-				copy_text(prompt_error, sizeof(prompt_error), "Name must be 1-19 letters"); return;
-			}
-			{ uint8_t i; for (i = 0; i < input_length; i++)
-				if (!isalpha((unsigned char)input[i])) {
-					copy_text(prompt_error, sizeof(prompt_error), "Name must use letters"); return;
-				}
-			}
+			if (!units_validate_variable_name(input, prompt_error, sizeof(prompt_error))) return;
 			copy_text(variable_name, sizeof(variable_name), input);
-			variable_stage = VARIABLE_VALUE; reset_input();
+			variable_stage = VARIABLE_VALUE; reset_input(); prompt_error[0] = 0;
 		} else if (units_set_variable(variable_name, input, prompt_error, sizeof(prompt_error))) {
 			variable_stage = VARIABLE_NAME; reset_input(); prompt_error[0] = 0;
 		}
@@ -738,42 +744,42 @@ static void handle_key(uint8_t key) {
 	}
 }
 
-static void draw_page_header(const char *title) {
+static void draw_page_header(void) {
 	gfx_FillScreen(COLOR_BACKGROUND);
 	gfx_SetColor(COLOR_PANEL); gfx_FillRectangle(0, 0, 320, 24);
-	print_at(title, 8, 8, COLOR_TEXT);
-	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 8, COLOR_ACCENT);
+	print_at("units", 8, 8, COLOR_TEXT);
 }
 
 static void draw_variable_page(void) {
 	unsigned index, count = units_variable_count();
 	char line[INPUT_CAPACITY + 32];
 	int x, y;
-	draw_page_header("F2 Variables");
-	if (!count) print_at("No session variables yet.", 8, 34, COLOR_MUTED);
+	draw_page_header();
+	if (!count) print_at("No session variables yet.", 8, 29, COLOR_MUTED);
 	for (index = 0; index < count; index++) {
-		int row_y = 32 + (int)index * 17;
+		int row_y = 28 + (int)index * 15;
 		if ((int)index == selected_variable) {
-			gfx_SetColor(COLOR_SELECTION); gfx_FillRectangle(4, row_y - 2, 312, 17);
+			gfx_SetColor(COLOR_SELECTION); gfx_FillRectangle(4, row_y - 2, 312, 15);
 		}
 		snprintf(line, sizeof(line), "%s = %s", units_variable_name(index), units_variable_definition(index));
 		draw_wrapped(line, 8, row_y, 304, 1, COLOR_TEXT);
 	}
-	if (prompt_error[0]) draw_wrapped(prompt_error, 8, 169, 304, 1, COLOR_ACCENT);
-	else print_at("Up/Down select; Enter edit; Del remove", 8, 169, COLOR_MUTED);
-	if (variable_stage == VARIABLE_NAME) print_at("Name (letters only):", 8, 187, COLOR_MUTED);
-	else { snprintf(line, sizeof(line), "Value of %s:", variable_name); print_at(line, 8, 187, COLOR_MUTED); }
-	print_at(">", 8, 207, COLOR_ACCENT); draw_wrapped(input, 20, 207, 292, 2, COLOR_TEXT);
-	cursor_location(&x, &y); gfx_SetColor(COLOR_ACCENT); gfx_VertLine(x, y + 10, 18);
+	if (prompt_error[0]) draw_wrapped(prompt_error, 8, 151, 304, 1, COLOR_ACCENT);
+	else print_at("Up/Down select; Enter edit; Del remove", 8, 151, COLOR_MUTED);
+	if (variable_stage == VARIABLE_NAME) print_at("Name (1-19 letters, 8 max):", 8, 169, COLOR_MUTED);
+	else { snprintf(line, sizeof(line), "Value of %s:", variable_name); print_at(line, 8, 169, COLOR_MUTED); }
+	print_at(">", 8, 188, COLOR_ACCENT); draw_wrapped(input, 20, 188, 292, 2, COLOR_TEXT);
+	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 169, COLOR_ACCENT);
+	cursor_location(&x, &y, 185); gfx_SetColor(COLOR_ACCENT); gfx_VertLine(x, y, 16);
 }
 
 static void draw_database_page(void) {
 	uint16_t index; unsigned match = 0, shown = 0, total;
 	char line[INPUT_CAPACITY + 16]; int x, y;
-	draw_page_header("F3 UNITDB");
+	draw_page_header();
 	if (!database_view_ready) print_at("UNITDB is unavailable.", 8, 42, COLOR_ACCENT);
 	total = database_match_count();
-	for (index = 0; index < database_line_count && shown < 8; index++) {
+	for (index = 0; index < database_line_count && shown < 7; index++) {
 		const char *value = database_text + database_lines[index];
 		if (!contains_query(value, input)) continue;
 		if (match++ < database_top) continue;
@@ -783,14 +789,15 @@ static void draw_database_page(void) {
 	}
 	if (!total && database_view_ready) print_at("No matches.", 8, 46, COLOR_MUTED);
 	snprintf(line, sizeof(line), "%u matches | Up/Down scroll", total);
-	print_at(line, 8, 183, COLOR_MUTED);
-	print_at("Search:", 8, 202, COLOR_MUTED);
-	print_at(">", 8, 220, COLOR_ACCENT); draw_wrapped(input, 20, 220, 292, 1, COLOR_TEXT);
-	cursor_location(&x, &y); gfx_SetColor(COLOR_ACCENT); gfx_VertLine(x, 217, 18);
+	print_at(line, 8, 165, COLOR_MUTED);
+	print_at("Search:", 8, 183, COLOR_MUTED);
+	print_at(">", 8, 201, COLOR_ACCENT); draw_wrapped(input, 20, 201, 292, 1, COLOR_TEXT);
+	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 183, COLOR_ACCENT);
+	cursor_location(&x, &y, 198); gfx_SetColor(COLOR_ACCENT); gfx_VertLine(x, y, 18);
 }
 
 static void draw_help_page(void) {
-	draw_page_header("F4 Help");
+	draw_page_header();
 	print_at("Have: quantity and unit", 8, 30, COLOR_TEXT);
 	print_at("Want: target unit; blank = definition", 8, 48, COLOR_TEXT);
 	print_at("Example: 3 ft + 6 inch -> m", 8, 66, COLOR_TEXT);
@@ -798,15 +805,14 @@ static void draw_help_page(void) {
 	print_at("then * or /, then + or -", 8, 108, COLOR_MUTED);
 	print_at("a / b c means a / (b*c)", 8, 126, COLOR_TEXT);
 	print_at("cm3 means cm^3; cm 3 means 3*cm", 8, 144, COLOR_TEXT);
-	print_at("F2: session variables; F3: UNITDB", 8, 168, COLOR_MUTED);
-	print_at("Alpha toggles letters/operators", 8, 186, COLOR_MUTED);
-	print_at("2nd: one capital; 2nd+On: quit", 8, 204, COLOR_MUTED);
-	print_at("Mode or Clear: calculator", 8, 222, COLOR_ACCENT);
+	print_at("Alpha toggles letters/operators", 8, 168, COLOR_MUTED);
+	print_at("2nd: one capital; 2nd+On: quit", 8, 186, COLOR_MUTED);
+	print_at("Mode or Clear: calculator", 8, 204, COLOR_ACCENT);
 }
 
 static void draw_settings_page(void) {
 	char line[64]; int row;
-	draw_page_header("F5 Settings");
+	draw_page_header();
 	for (row = 0; row < 3; row++) if (setting_selection == row) {
 		gfx_SetColor(COLOR_SELECTION); gfx_FillRectangle(4, 35 + row * 33, 312, 28);
 	}
@@ -817,16 +823,16 @@ static void draw_settings_page(void) {
 	print_at("Credits", 12, 109, COLOR_TEXT);
 	print_at("Up/Down select; Left/Right change", 8, 162, COLOR_MUTED);
 	print_at("Enter opens credits or changes value", 8, 182, COLOR_MUTED);
-	print_at("Mode or Clear: calculator", 8, 220, COLOR_ACCENT);
+	print_at("Mode or Clear: calculator", 8, 202, COLOR_ACCENT);
 }
 
 static void draw_credits_page(void) {
-	draw_page_header("Credits");
+	draw_page_header();
 	print_at("Inspired by GNU Units", 8, 42, COLOR_TEXT);
 	print_at("Built with the CE C Toolchain", 8, 64, COLOR_TEXT);
 	print_at("Database: data/units.dat", 8, 86, COLOR_MUTED);
-	print_at("Enter: Settings", 8, 192, COLOR_ACCENT);
-	print_at("Mode or Clear: calculator", 8, 215, COLOR_ACCENT);
+	print_at("Enter: Settings", 8, 177, COLOR_ACCENT);
+	print_at("Mode or Clear: calculator", 8, 199, COLOR_ACCENT);
 }
 
 static void draw_screen(void) {
@@ -838,6 +844,7 @@ static void draw_screen(void) {
 	case PAGE_CREDITS: draw_credits_page(); break;
 	default: draw_calculator(); break;
 	}
+	draw_bottom_menu();
 }
 
 int main(void) {

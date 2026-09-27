@@ -424,7 +424,7 @@ static void print_at(const char *text, int x, int y, uint8_t color) {
 }
 
 static void draw_bottom_menu(void) {
-	static const char *labels[5] = {"Quit", "Var", "DB", "Help", "Set"};
+	static const char *labels[5] = {"Quit", "Vars", "DB", "Help", "Config"};
 	uint8_t index;
 	gfx_SetColor(COLOR_PANEL);
 	gfx_FillRectangle(0, 220, 320, 20);
@@ -433,7 +433,13 @@ static void draw_bottom_menu(void) {
 			(index == 2 && page == PAGE_DATABASE) ||
 			(index == 3 && page == PAGE_HELP) ||
 			(index == 4 && (page == PAGE_SETTINGS || page == PAGE_CREDITS));
-		print_at(labels[index], 16 + 64 * index, 225, active ? COLOR_ACCENT : COLOR_TEXT);
+		// print_at(index == 0 && page != PAGE_CALCULATOR ? "Back" : labels[index],
+		// 		 16 + 64 * index, 225, active ? COLOR_ACCENT : COLOR_TEXT);
+		// center the text, given that each letter is approximately 8 pixels wide
+		int text_width = gfx_GetStringWidth(labels[index]);
+		// int x_offset = (64 - text_width) / 2;
+		print_at(index == 0 && page != PAGE_CALCULATOR ? "Back" : labels[index],
+				 32 + 64 * index - text_width / 2, 225, active ? COLOR_ACCENT : COLOR_TEXT);
 	}
 }
 
@@ -560,7 +566,7 @@ static void draw_calculator(void) {
 		}
 	if (!history_count) {
 		if (database_ready)
-			print_at("Enter a quantity and unit :P", 8, 48, COLOR_MUTED);
+			print_at("Enter a quantity and unit :P", 8, 48-16, COLOR_MUTED);
 		else {
 			print_at("Database error:", 8, 42, COLOR_ACCENT);
 			draw_wrapped(database_error, 8, 63, 304, 3, COLOR_MUTED);
@@ -670,6 +676,12 @@ static void edit_page_input(uint8_t key) {
 
 static void handle_variable_key(uint8_t key) {
 	unsigned count = units_variable_count();
+	if (key == sk_Clear) {
+		selected_variable = -1;
+		reset_input();
+		prompt_error[0] = 0;
+		return;
+	}
 	if (key == sk_Up && count) {
 		if (selected_variable < 0) selected_variable = (int8_t)count - 1;
 		else if (selected_variable > 0) selected_variable--;
@@ -680,7 +692,7 @@ static void handle_variable_key(uint8_t key) {
 		return;
 	}
 	if (selected_variable >= 0) {
-		if (key == sk_Del || key == sk_Clear) {
+		if (key == sk_Del) {
 			units_delete_variable((unsigned)selected_variable);
 			selected_variable = -1; return;
 		}
@@ -706,12 +718,15 @@ static void handle_variable_key(uint8_t key) {
 }
 
 static void handle_key(uint8_t key) {
-	if (key == sk_Mode && page != PAGE_CALCULATOR) { change_page(PAGE_CALCULATOR); return; }
-	if (key == sk_Window && page == PAGE_VARIABLES) { change_page(PAGE_CALCULATOR); return; }
-	if (key == sk_Zoom && page == PAGE_DATABASE) { change_page(PAGE_CALCULATOR); return; }
-	if (key == sk_Trace && page == PAGE_HELP) { change_page(PAGE_CALCULATOR); return; }
-	if (key == sk_Graph && page == PAGE_SETTINGS) { change_page(PAGE_CALCULATOR); return; }
-	if (key == sk_Yequ) { quit_requested = true; return; }
+	if (key == sk_Yequ) {
+		if (page == PAGE_CALCULATOR) quit_requested = true;
+		else change_page(PAGE_CALCULATOR);
+		return;
+	}
+	if (key == sk_Window && page == PAGE_VARIABLES) return;
+	if (key == sk_Zoom && page == PAGE_DATABASE) return;
+	if (key == sk_Trace && page == PAGE_HELP) return;
+	if (key == sk_Graph && page == PAGE_SETTINGS) return;
 	if (key == sk_Window) { change_page(PAGE_VARIABLES); return; }
 	if (key == sk_Zoom) { change_page(PAGE_DATABASE); return; }
 	if (key == sk_Trace) { change_page(PAGE_HELP); return; }
@@ -727,7 +742,6 @@ static void handle_key(uint8_t key) {
 		if (key == sk_Down) { if (database_top + 1 < database_match_count()) database_top++; return; }
 		edit_page_input(key); return;
 	}
-	if (key == sk_Clear) { change_page(PAGE_CALCULATOR); return; }
 	if (page == PAGE_CREDITS) { if (key == sk_Enter) change_page(PAGE_SETTINGS); return; }
 	if (page == PAGE_SETTINGS) {
 		if (key == sk_Up && setting_selection) setting_selection--;
@@ -765,8 +779,8 @@ static void draw_variable_page(void) {
 		draw_wrapped(line, 8, row_y, 304, 1, COLOR_TEXT);
 	}
 	if (prompt_error[0]) draw_wrapped(prompt_error, 8, 151, 304, 1, COLOR_ACCENT);
-	else print_at("Up/Down select; Enter edit; Del remove", 8, 151, COLOR_MUTED);
-	if (variable_stage == VARIABLE_NAME) print_at("Name (1-19 letters, 8 max):", 8, 169, COLOR_MUTED);
+	// else print_at("Up/Down select; Enter edit; Del remove", 8, 151, COLOR_MUTED);
+	if (variable_stage == VARIABLE_NAME) print_at("Enter variable name:", 8, 169, COLOR_MUTED);
 	else { snprintf(line, sizeof(line), "Value of %s:", variable_name); print_at(line, 8, 169, COLOR_MUTED); }
 	print_at(">", 8, 188, COLOR_ACCENT); draw_wrapped(input, 20, 188, 292, 2, COLOR_TEXT);
 	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 169, COLOR_ACCENT);
@@ -788,9 +802,9 @@ static void draw_database_page(void) {
 		shown++;
 	}
 	if (!total && database_view_ready) print_at("No matches.", 8, 46, COLOR_MUTED);
-	snprintf(line, sizeof(line), "%u matches | Up/Down scroll", total);
-	print_at(line, 8, 165, COLOR_MUTED);
-	print_at("Search:", 8, 183, COLOR_MUTED);
+	snprintf(line, sizeof(line), "Search (%u matches):", total);
+	// print_at(line, 8, 165, COLOR_MUTED);
+	print_at(line, 8, 183, COLOR_MUTED);
 	print_at(">", 8, 201, COLOR_ACCENT); draw_wrapped(input, 20, 201, 292, 1, COLOR_TEXT);
 	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 183, COLOR_ACCENT);
 	cursor_location(&x, &y, 198); gfx_SetColor(COLOR_ACCENT); gfx_VertLine(x, y, 18);
@@ -798,16 +812,17 @@ static void draw_database_page(void) {
 
 static void draw_help_page(void) {
 	draw_page_header();
-	print_at("Have: quantity and unit", 8, 30, COLOR_TEXT);
-	print_at("Want: target unit; blank = definition", 8, 48, COLOR_TEXT);
-	print_at("Example: 3 ft + 6 inch -> m", 8, 66, COLOR_TEXT);
-	print_at("Order: powers, implicit products,", 8, 90, COLOR_MUTED);
-	print_at("then * or /, then + or -", 8, 108, COLOR_MUTED);
-	print_at("a / b c means a / (b*c)", 8, 126, COLOR_TEXT);
-	print_at("cm3 means cm^3; cm 3 means 3*cm", 8, 144, COLOR_TEXT);
-	print_at("Alpha toggles letters/operators", 8, 168, COLOR_MUTED);
-	print_at("2nd: one capital; 2nd+On: quit", 8, 186, COLOR_MUTED);
-	print_at("Mode or Clear: calculator", 8, 204, COLOR_ACCENT);
+	print_at("Type unit expressions and press [enter].", 8, 30, COLOR_TEXT);
+	print_at("Example:", 8, 48, COLOR_MUTED);
+	print_at("    You have: 3 ft + 6 in", 8, 66, COLOR_MUTED);
+	print_at("    You want: m", 8, 66+18, COLOR_MUTED);
+	print_at("    Result: 3 ft + 6 in -> 1.067 m", 8, 66+18*2, COLOR_MUTED);
+	print_at("Controls:", 8, 106+18, COLOR_TEXT);
+	print_at("    [2nd]: Capitalize letters", 8, 106+18*2, COLOR_MUTED);
+	print_at("    [alpha]: Toggle text and nums/symbols", 8, 106+18*3, COLOR_MUTED);
+	print_at("    [up]/[down] to navigate history", 8, 106+18*4, COLOR_MUTED);
+	print_at("    [enter] while selecting to copy+paste", 8, 106+18*5, COLOR_MUTED);
+	// print_at("F1: calculator", 8, 204, COLOR_ACCENT);
 }
 
 static void draw_settings_page(void) {
@@ -821,18 +836,21 @@ static void draw_settings_page(void) {
 	snprintf(line, sizeof(line), "Significant digits: %u", units_significant_digits());
 	print_at(line, 12, 76, COLOR_TEXT);
 	print_at("Credits", 12, 109, COLOR_TEXT);
-	print_at("Up/Down select; Left/Right change", 8, 162, COLOR_MUTED);
-	print_at("Enter opens credits or changes value", 8, 182, COLOR_MUTED);
-	print_at("Mode or Clear: calculator", 8, 202, COLOR_ACCENT);
+	// print_at("Up/Down select; Left/Right change", 8, 162, COLOR_MUTED);
+	print_at("[up]/[down] to navigate", 8, 182, COLOR_MUTED);
+	// print_at("F1: calculator", 8, 202, COLOR_ACCENT);
 }
 
 static void draw_credits_page(void) {
 	draw_page_header();
-	print_at("Inspired by GNU Units", 8, 42, COLOR_TEXT);
-	print_at("Built with the CE C Toolchain", 8, 64, COLOR_TEXT);
-	print_at("Database: data/units.dat", 8, 86, COLOR_MUTED);
-	print_at("Enter: Settings", 8, 177, COLOR_ACCENT);
-	print_at("Mode or Clear: calculator", 8, 199, COLOR_ACCENT);
+	print_at("By TheGrapeApe22", 8, 42, COLOR_MUTED);
+	print_at("For Dungewar", 8, 42+22, COLOR_MUTED);
+	print_at("Inspired by GNU Units", 8, 64+22, COLOR_MUTED);
+	print_at("Made with CE C Toolchain", 8, 64+22+22, COLOR_MUTED);
+	print_at("github.com/TheGrapeApe22/ti-84-units", 8, 86+22+22, COLOR_MUTED);
+	
+	// print_at("Enter: Settings", 8, 177, COLOR_ACCENT);
+	// print_at("F1: calculator", 8, 199, COLOR_ACCENT);
 }
 
 static void draw_screen(void) {
@@ -861,8 +879,6 @@ int main(void) {
 	draw_screen();
 	gfx_SwapDraw();
 	for (;;) {
-		if (boot_CheckOnPressed() && uppercase_once)
-			break;
 		key = os_GetCSC();
 		if (key) {
 			handle_key(key);

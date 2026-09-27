@@ -16,13 +16,13 @@ Enter a quantity at **You have**, then a target unit at **You want**. Leave the 
 
 The five labels along the bottom align with the top-row function keys and open these pages:
 
-- **F1 (Y=):** Quit and save history and settings.
-- **F2 (Window):** Create or edit up to eight session variables. Enter a name of 1-19 letters, then its value as a unit expression. Up/Down selects a variable; Enter edits it; Del or Clear removes it. Variables last until the app exits.
+- **F1 (Y=):** Return to the calculator from another page, or quit and save history and settings from the calculator.
+- **F2 (Window):** Create or edit up to eight session variables. Enter a name of 1-19 letters, then its value as a unit expression. Up/Down selects a variable; Enter edits it; Del removes it; Clear erases the current input line. Variables last until the app exits.
 - **F3 (Zoom):** Browse the transferred `UNITDB` database. Type to filter lines immediately; Up/Down scrolls the matches.
 - **F4 (Trace):** Help and expression rules.
 - **F5 (Graph):** Switch dark/light theme, choose 2-7 significant digits, and view credits. Theme and precision are archived and restored on the next launch. Precision applies to new results; the eight-character number limit can reduce it.
 
-Mode returns to the calculator from another page. The same F-key toggles its page. Alpha toggles letters and numbers/operators; 2nd makes the next letter uppercase. Left/Right move the input cursor. Up/Down selects history, Enter recalls it, and Del or Clear removes the selected entry. The latest six history entries are archived on normal exit and survive a RAM clear. 2nd+On also quits.
+Pressing an already-open page key leaves that page open. Alpha toggles letters and numbers/operators; 2nd makes the next letter uppercase. Left/Right move the input cursor. Up/Down selects history, Enter recalls it, and Del or Clear removes the selected entry. The latest six history entries are archived on normal exit and survive a RAM clear. Quit is only available through F1 on the calculator.
 
 ### Workflow
 * Install [CE C/C++ Toolchain](https://ce-programming.github.io/toolchain/static/getting-started.html)

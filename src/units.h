@@ -9,6 +9,8 @@ bool units_validate_variable_name(const char *name, char *error,
 bool units_set_variable(const char *name, const char *definition, char *error,
 						size_t capacity);
 void units_delete_variable(unsigned index);
+bool units_load_variables(void);
+bool units_save_variables(void);
 unsigned units_variable_count(void);
 const char *units_variable_name(unsigned index);
 const char *units_variable_definition(unsigned index);

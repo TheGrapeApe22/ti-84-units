@@ -13,6 +13,10 @@
 #define MAX_NAME 20
 #define DIMENSIONS 8
 #define DEFINITION_CAPACITY 48
+#define VARIABLES_APPVAR "UNITVARS"
+#define VARIABLES_HEADER "UCV1"
+#define VARIABLE_RECORD_SIZE                                                   \
+	(MAX_NAME + DEFINITION_CAPACITY + sizeof(double) + DIMENSIONS)
 typedef struct unit unit_t;
 typedef struct {
 	char name[MAX_NAME];
@@ -657,6 +661,83 @@ void units_delete_variable(unsigned index) {
 		memmove(&variables[index], &variables[index + 1],
 				(variable_count - index - 1) * sizeof(variables[0]));
 	variable_count--;
+}
+
+bool units_load_variables(void) {
+	uint8_t handle, count, index, previous;
+	uint16_t expected_size;
+	char header[4];
+	variable_t restored[UNITS_VARIABLE_CAPACITY];
+	variable_count = 0;
+	handle = ti_Open(VARIABLES_APPVAR, "r");
+	if (!handle)
+		return true;
+	if (ti_Read(header, 1, sizeof(header), handle) != sizeof(header) ||
+		memcmp(header, VARIABLES_HEADER, sizeof(header)) ||
+		ti_Read(&count, 1, 1, handle) != 1 || count > UNITS_VARIABLE_CAPACITY)
+		goto invalid;
+	expected_size = 5 + (uint16_t)count * VARIABLE_RECORD_SIZE;
+	if (ti_GetSize(handle) != expected_size)
+		goto invalid;
+	for (index = 0; index < count; index++) {
+		variable_t *item = &restored[index];
+		uint8_t letter;
+		if (ti_Read(item->name, 1, MAX_NAME, handle) != MAX_NAME ||
+			ti_Read(item->definition, 1, DEFINITION_CAPACITY, handle) !=
+				DEFINITION_CAPACITY ||
+			ti_Read(&item->value.scale, 1, sizeof(double), handle) !=
+				sizeof(double) ||
+			ti_Read(item->value.dim, 1, DIMENSIONS, handle) != DIMENSIONS ||
+			!memchr(item->name, '\0', MAX_NAME) || !item->name[0] ||
+			!memchr(item->definition, '\0', DEFINITION_CAPACITY) ||
+			!item->definition[0] || !isfinite(item->value.scale))
+			goto invalid;
+		for (letter = 0; item->name[letter]; letter++)
+			if (!isalpha((unsigned char)item->name[letter]))
+				goto invalid;
+		for (previous = 0; previous < index; previous++)
+			if (!strcmp(item->name, restored[previous].name))
+				goto invalid;
+	}
+	ti_Close(handle);
+	memcpy(variables, restored, count * sizeof(variables[0]));
+	variable_count = count;
+	return true;
+invalid:
+	ti_Close(handle);
+	return false;
+}
+
+bool units_save_variables(void) {
+	uint8_t handle, index, count = variable_count;
+	bool archived;
+	handle = ti_Open(VARIABLES_APPVAR, "w");
+	if (!handle)
+		return false;
+	if (ti_Write(VARIABLES_HEADER, 1, 4, handle) != 4 ||
+		ti_Write(&count, 1, 1, handle) != 1)
+		goto write_failed;
+	for (index = 0; index < count; index++) {
+		const variable_t *item = &variables[index];
+		if (ti_Write(item->name, 1, MAX_NAME, handle) != MAX_NAME ||
+			ti_Write(item->definition, 1, DEFINITION_CAPACITY, handle) !=
+				DEFINITION_CAPACITY ||
+			ti_Write(&item->value.scale, 1, sizeof(double), handle) !=
+				sizeof(double) ||
+			ti_Write(item->value.dim, 1, DIMENSIONS, handle) != DIMENSIONS)
+			goto write_failed;
+	}
+	ti_Close(handle);
+	handle = ti_Open(VARIABLES_APPVAR, "r");
+	if (!handle)
+		return false;
+	ti_SetGCBehavior(NULL, NULL);
+	archived = ti_SetArchiveStatus(true, handle) && ti_IsArchived(handle);
+	ti_Close(handle);
+	return archived;
+write_failed:
+	ti_Close(handle);
+	return false;
 }
 unsigned units_variable_count(void) { return variable_count; }
 const char *units_variable_name(unsigned index) {

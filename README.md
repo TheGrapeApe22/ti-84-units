@@ -16,6 +16,8 @@ Enter a quantity at **You have**, then a target unit at **You want**. Leave the 
 
 Use F1-F5 buttons to navigate between pages. Press F4 (Help) for specific controls.
 
+Variables are saved immediately to the archived `UNITVARS` AppVar when created, edited, or deleted, so they survive app restarts and RAM clears. Their evaluated values are retained; changing `UNITDB` does not recalculate an existing variable until you edit its value.
+
 ### Workflow
 * Install [CE C/C++ Toolchain](https://ce-programming.github.io/toolchain/static/getting-started.html)
 * Install [CeMU emulator](https://github.com/CE-Programming/CEmu/releases/tag/v2.0) for easy testing (requires a ROM dump from your physical calculator)

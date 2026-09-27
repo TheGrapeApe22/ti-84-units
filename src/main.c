@@ -61,6 +61,7 @@ static uint16_t database_lines[DB_LINE_CAPACITY], database_line_count,
 	database_top;
 static bool database_view_ready;
 static bool light_theme, quit_requested, off_armed;
+static bool variables_dirty, variables_load_failed;
 static uint8_t setting_selection;
 
 static void copy_text(char *out, size_t cap, const char *text) {
@@ -161,6 +162,17 @@ static void save_settings(void) {
 	ti_SetGCBehavior(NULL, NULL);
 	ti_SetArchiveStatus(true, handle);
 	ti_Close(handle);
+}
+
+static void persist_variables(void) {
+	variables_dirty = !units_save_variables();
+	if (variables_dirty)
+		copy_text(prompt_error, sizeof(prompt_error),
+				  "Variable kept in RAM; archive failed");
+	else {
+		variables_load_failed = false;
+		prompt_error[0] = 0;
+	}
 }
 
 static char alpha_character(uint8_t key) {
@@ -590,7 +602,7 @@ static void draw_calculator(void) {
 		}
 	}
 	gfx_SetColor(COLOR_PANEL);
-	gfx_FillRectangle(0, 116, 320, 104);
+	// gfx_FillRectangle(0, 116, 320, 104);
 	if (prompt_error[0])
 		draw_wrapped(prompt_error, 8, 120, 304, 2, COLOR_ACCENT);
 	else if (prompt == PROMPT_WANT) {
@@ -777,6 +789,7 @@ static void handle_variable_key(uint8_t key) {
 		if (key == sk_Del) {
 			units_delete_variable((unsigned)selected_variable);
 			selected_variable = -1;
+			persist_variables();
 			return;
 		}
 		if (key == sk_Enter) {
@@ -804,7 +817,7 @@ static void handle_variable_key(uint8_t key) {
 									  sizeof(prompt_error))) {
 			variable_stage = VARIABLE_NAME;
 			reset_input();
-			prompt_error[0] = 0;
+			persist_variables();
 		}
 		return;
 	}
@@ -914,7 +927,7 @@ static void draw_variable_page(void) {
 	int x, y;
 	draw_page_header();
 	if (!count)
-		print_at("No session variables yet.", 8, 29, COLOR_MUTED);
+		print_at("No saved variables yet.", 8, 29, COLOR_MUTED);
 	for (index = 0; index < count; index++) {
 		int row_y = 28 + (int)index * 15;
 		if ((int)index == selected_variable) {
@@ -927,6 +940,8 @@ static void draw_variable_page(void) {
 	}
 	if (prompt_error[0])
 		draw_wrapped(prompt_error, 8, 151, 304, 1, COLOR_ACCENT);
+	else if (variables_load_failed)
+		print_at("Saved variables could not be loaded", 8, 151, COLOR_ACCENT);
 	// else print_at("Up/Down select; Enter edit; Del remove", 8, 151,
 	// COLOR_MUTED);
 	if (variable_stage == VARIABLE_NAME)
@@ -1056,6 +1071,7 @@ int main(void) {
 	uint8_t key;
 	bool on_pressed;
 	database_ready = units_load(database_error, sizeof(database_error));
+	variables_load_failed = !units_load_variables();
 	load_history();
 	load_settings();
 	gfx_Begin();
@@ -1079,6 +1095,8 @@ int main(void) {
 		}
 	}
 	gfx_End();
+	if (variables_dirty)
+		units_save_variables();
 	save_history();
 	save_settings();
 	return 0;

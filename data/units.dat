@@ -5,6 +5,7 @@ K !
 A !
 mol !
 cd !
+bit !
 radian !dimensionless
 steradian !dimensionless
 tera- 1e12
@@ -263,3 +264,6 @@ fatman                  nagasaki
 littleboy               hiroshima
 tsarbomba               50 megaton tnt
 nit cd/m^2
+
+b bit
+byte 8 b

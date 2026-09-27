@@ -4,8 +4,10 @@
 #include <stddef.h>
 #define UNITS_RESULT_CAPACITY 96
 #define UNITS_VARIABLE_CAPACITY 8
-bool units_validate_variable_name(const char *name, char *error, size_t capacity);
-bool units_set_variable(const char *name, const char *definition, char *error, size_t capacity);
+bool units_validate_variable_name(const char *name, char *error,
+								  size_t capacity);
+bool units_set_variable(const char *name, const char *definition, char *error,
+						size_t capacity);
 void units_delete_variable(unsigned index);
 unsigned units_variable_count(void);
 const char *units_variable_name(unsigned index);

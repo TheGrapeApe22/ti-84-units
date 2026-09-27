@@ -7,10 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 #define DB_CAPACITY 12288
-#define MAX_UNITS 256
+#define MAX_UNITS 300
+#define MAX_NESTING 16
 #define MAX_PREFIXES 20
 #define MAX_NAME 20
-#define DIMENSIONS 7
+#define DIMENSIONS 8
 #define DEFINITION_CAPACITY 48
 typedef struct unit unit_t;
 typedef struct {
@@ -24,6 +25,7 @@ typedef struct {
 typedef struct {
 	const char *at;
 	char error[UNITS_RESULT_CAPACITY];
+	uint8_t depth;
 } parser_t;
 struct unit {
 	char name[MAX_NAME];
@@ -36,9 +38,14 @@ static unit_t units[MAX_UNITS];
 static prefix_t prefixes[MAX_PREFIXES];
 static char primitive_name[DIMENSIONS][MAX_NAME];
 static uint16_t unit_count;
+static uint8_t resolution_depth;
 static uint8_t prefix_count, primitive_count;
 static bool loaded;
-typedef struct { char name[MAX_NAME]; char definition[DEFINITION_CAPACITY]; measure_t value; } variable_t;
+typedef struct {
+	char name[MAX_NAME];
+	char definition[DEFINITION_CAPACITY];
+	measure_t value;
+} variable_t;
 static variable_t variables[UNITS_VARIABLE_CAPACITY];
 static uint8_t variable_count;
 static uint8_t significant_digits = 7;
@@ -68,7 +75,7 @@ static const unit_t *find_exact(const char *name) {
 }
 
 static bool parse_expression(parser_t *p, measure_t *out);
-static bool resolve_unit(unit_t *unit, char *error, size_t cap) {
+static bool resolve_unit_inner(unit_t *unit, char *error, size_t cap) {
 	parser_t parser;
 	uint8_t index;
 	if (unit->state == 2)
@@ -97,6 +104,7 @@ static bool resolve_unit(unit_t *unit, char *error, size_t cap) {
 	}
 	parser.at = unit->definition;
 	parser.error[0] = '\0';
+	parser.depth = 0;
 	if (!parse_expression(&parser, &unit->value)) {
 		copy_text(error, cap, parser.error);
 		unit->state = 0;
@@ -110,6 +118,20 @@ static bool resolve_unit(unit_t *unit, char *error, size_t cap) {
 	}
 	unit->state = 2;
 	return true;
+}
+
+static bool resolve_unit(unit_t *unit, char *error, size_t cap) {
+	bool okay;
+	if (unit->state == 2)
+		return true;
+	if (resolution_depth >= MAX_NESTING) {
+		copy_text(error, cap, "Unit definitions nested too deeply");
+		return false;
+	}
+	resolution_depth++;
+	okay = resolve_unit_inner(unit, error, cap);
+	resolution_depth--;
+	return okay;
 }
 
 static const unit_t *plural_unit(const char *name) {
@@ -146,8 +168,10 @@ static bool lookup(const char *name, measure_t *out, const unit_t **matched,
 	for (variable_index = 0; variable_index < variable_count; variable_index++)
 		if (!strcmp(name, variables[variable_index].name)) {
 			*out = variables[variable_index].value;
-			if (matched) *matched = NULL;
-			if (used_prefix) *used_prefix = NULL;
+			if (matched)
+				*matched = NULL;
+			if (used_prefix)
+				*used_prefix = NULL;
 			return true;
 		}
 	const prefix_t *best_prefix = NULL;
@@ -191,15 +215,24 @@ static bool parse_primary(parser_t *p, measure_t *out) {
 	double value;
 	spaces(p);
 	if (*p->at == '(') {
-		p->at++;
-		if (!parse_expression(p, out))
+		if (p->depth >= MAX_NESTING) {
+			fail(p, "Parentheses nested too deeply");
 			return false;
+		}
+		p->depth++;
+		p->at++;
+		if (!parse_expression(p, out)) {
+			p->depth--;
+			return false;
+		}
 		spaces(p);
 		if (*p->at != ')') {
 			fail(p, "Missing closing parenthesis");
+			p->depth--;
 			return false;
 		}
 		p->at++;
+		p->depth--;
 		return true;
 	}
 	{
@@ -329,31 +362,38 @@ static bool combine(measure_t *left, const measure_t *right, bool divide) {
 }
 
 static bool implicit_start(char c) {
-	return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == 46 || c == 40;
+	return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == 46 ||
+		   c == 40;
 }
 
 static bool parse_implicit_product(parser_t *p, measure_t *out) {
-	if (!parse_factor(p, out)) return false;
+	if (!parse_factor(p, out))
+		return false;
 	for (;;) {
 		measure_t right;
 		spaces(p);
-		if (!implicit_start(*p->at)) break;
-		if (!parse_factor(p, &right)) return false;
+		if (!implicit_start(*p->at))
+			break;
+		if (!parse_factor(p, &right))
+			return false;
 		combine(out, &right, false);
 	}
 	return true;
 }
 
 static bool parse_product(parser_t *p, measure_t *out) {
-	if (!parse_implicit_product(p, out)) return false;
+	if (!parse_implicit_product(p, out))
+		return false;
 	for (;;) {
 		measure_t right;
 		char operation;
 		spaces(p);
 		operation = *p->at;
-		if (operation != 42 && operation != 47) break;
+		if (operation != 42 && operation != 47)
+			break;
 		p->at++;
-		if (!parse_implicit_product(p, &right)) return false;
+		if (!parse_implicit_product(p, &right))
+			return false;
 		combine(out, &right, operation == 47);
 	}
 	return true;
@@ -387,7 +427,7 @@ static bool parse_expression(parser_t *p, measure_t *out) {
 }
 
 static bool parse(const char *text, measure_t *out, char *error, size_t cap) {
-	parser_t p = {text, ""};
+	parser_t p = {text, "", 0};
 	if (!parse_expression(&p, out)) {
 		copy_text(error, cap, p.error);
 		return false;
@@ -523,7 +563,7 @@ bool units_load(char *error, size_t cap) {
 	uint8_t handle = ti_Open("UNITDB", "r");
 	uint16_t size, i;
 	loaded = false;
-	unit_count = prefix_count = primitive_count = 0;
+	unit_count = prefix_count = primitive_count = resolution_depth = 0;
 	memset(primitive_name, 0, sizeof(primitive_name));
 	if (!handle) {
 		copy_text(error, cap, "Missing UNITDB AppVar");
@@ -574,7 +614,8 @@ bool units_validate_variable_name(const char *name, char *error, size_t cap) {
 			return false;
 		}
 	for (index = 0; index < variable_count; index++)
-		if (!strcmp(name, variables[index].name)) return true;
+		if (!strcmp(name, variables[index].name))
+			return true;
 	if (lookup(name, &value, NULL, NULL)) {
 		copy_text(error, cap, "Name already used by a unit");
 		return false;
@@ -586,18 +627,23 @@ bool units_validate_variable_name(const char *name, char *error, size_t cap) {
 	return true;
 }
 
-bool units_set_variable(const char *name, const char *definition, char *error, size_t cap) {
+bool units_set_variable(const char *name, const char *definition, char *error,
+						size_t cap) {
 	measure_t value;
 	uint8_t index;
-	if (!units_validate_variable_name(name, error, cap)) return false;
+	if (!units_validate_variable_name(name, error, cap))
+		return false;
 	if (strlen(definition) >= DEFINITION_CAPACITY) {
 		copy_text(error, cap, "Variable value is too long");
 		return false;
 	}
-	if (!parse_quantity(definition, &value, error, cap)) return false;
+	if (!parse_quantity(definition, &value, error, cap))
+		return false;
 	for (index = 0; index < variable_count; index++)
-		if (!strcmp(name, variables[index].name)) break;
-	if (index == variable_count) variable_count++;
+		if (!strcmp(name, variables[index].name))
+			break;
+	if (index == variable_count)
+		variable_count++;
 	copy_text(variables[index].name, MAX_NAME, name);
 	copy_text(variables[index].definition, DEFINITION_CAPACITY, definition);
 	variables[index].value = value;
@@ -605,16 +651,24 @@ bool units_set_variable(const char *name, const char *definition, char *error, s
 }
 
 void units_delete_variable(unsigned index) {
-	if (index >= variable_count) return;
+	if (index >= variable_count)
+		return;
 	if (index + 1 < variable_count)
 		memmove(&variables[index], &variables[index + 1],
 				(variable_count - index - 1) * sizeof(variables[0]));
 	variable_count--;
 }
 unsigned units_variable_count(void) { return variable_count; }
-const char *units_variable_name(unsigned index) { return index < variable_count ? variables[index].name : ""; }
-const char *units_variable_definition(unsigned index) { return index < variable_count ? variables[index].definition : ""; }
-void units_set_significant_digits(unsigned digits) { if (digits >= 2 && digits <= 7) significant_digits = (uint8_t)digits; }
+const char *units_variable_name(unsigned index) {
+	return index < variable_count ? variables[index].name : "";
+}
+const char *units_variable_definition(unsigned index) {
+	return index < variable_count ? variables[index].definition : "";
+}
+void units_set_significant_digits(unsigned digits) {
+	if (digits >= 2 && digits <= 7)
+		significant_digits = (uint8_t)digits;
+}
 unsigned units_significant_digits(void) { return significant_digits; }
 
 static void trim_number(char *text) {
@@ -672,18 +726,24 @@ static void compact_number(double value, char *out, size_t cap) {
 		copy_text(out, cap, value < 0 ? "-inf" : "inf");
 		return;
 	}
-	if (!absolute) { copy_text(out, cap, "0"); return; }
+	if (!absolute) {
+		copy_text(out, cap, "0");
+		return;
+	}
 	{
-		int preferred = (int)significant_digits - 1 - (int)floor(log10(absolute));
-		if (preferred > 6) preferred = 6;
+		int preferred =
+			(int)significant_digits - 1 - (int)floor(log10(absolute));
+		if (preferred > 6)
+			preferred = 6;
 		for (precision = preferred; precision >= 0; precision--) {
-		format_fixed(candidate, sizeof(candidate), value, (uint8_t)precision);
-		trim_number(candidate);
-		if (strlen(candidate) <= 8 &&
-			(!value || has_nonzero_digit(candidate))) {
-			copy_text(out, cap, candidate);
-			return;
-		}
+			format_fixed(candidate, sizeof(candidate), value,
+						 (uint8_t)precision);
+			trim_number(candidate);
+			if (strlen(candidate) <= 8 &&
+				(!value || has_nonzero_digit(candidate))) {
+				copy_text(out, cap, candidate);
+				return;
+			}
 		}
 	}
 	exponent = (int)floor(log10(absolute));
@@ -782,9 +842,13 @@ bool units_describe(const char *have, char *result, size_t cap) {
 		} else if (!unit) {
 			uint8_t i;
 			for (i = 0; i < variable_count; i++)
-				if (!strcmp(token, variables[i].name)) break;
-			if (i < variable_count) snprintf(result, cap, "%s = %s = %s", token, variables[i].definition, normalized);
-			else snprintf(result, cap, "%s = %s", token, normalized);
+				if (!strcmp(token, variables[i].name))
+					break;
+			if (i < variable_count)
+				snprintf(result, cap, "%s = %s = %s", token,
+						 variables[i].definition, normalized);
+			else
+				snprintf(result, cap, "%s = %s", token, normalized);
 		} else if (strcmp(token, unit->name))
 			snprintf(result, cap, "%s = %s = %s", unit->name, unit->definition,
 					 normalized);

@@ -1,7 +1,7 @@
+#include <ctype.h>
 #include <fileioc.h>
 #include <graphx.h>
 #include <stdbool.h>
-#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,7 +24,14 @@
 #define COLOR_SELECTION 5
 
 typedef enum { PROMPT_HAVE, PROMPT_WANT } prompt_t;
-typedef enum { PAGE_CALCULATOR, PAGE_VARIABLES, PAGE_DATABASE, PAGE_HELP, PAGE_SETTINGS, PAGE_CREDITS } page_t;
+typedef enum {
+	PAGE_CALCULATOR,
+	PAGE_VARIABLES,
+	PAGE_DATABASE,
+	PAGE_HELP,
+	PAGE_SETTINGS,
+	PAGE_CREDITS
+} page_t;
 typedef enum { VARIABLE_NAME, VARIABLE_VALUE } variable_stage_t;
 typedef struct {
 	char have[INPUT_CAPACITY];
@@ -50,9 +57,10 @@ static int8_t selected_variable = -1;
 static char saved_input[INPUT_CAPACITY];
 static uint8_t saved_length, saved_cursor;
 static char database_text[DB_VIEW_CAPACITY];
-static uint16_t database_lines[DB_LINE_CAPACITY], database_line_count, database_top;
+static uint16_t database_lines[DB_LINE_CAPACITY], database_line_count,
+	database_top;
 static bool database_view_ready;
-static bool light_theme, quit_requested;
+static bool light_theme, quit_requested, off_armed;
 static uint8_t setting_selection;
 
 static void copy_text(char *out, size_t cap, const char *text) {
@@ -123,11 +131,12 @@ static bool save_history(void) {
 static void load_settings(void) {
 	uint8_t handle = ti_Open(SETTINGS_APPVAR, "r");
 	uint8_t bytes[6];
-	if (!handle) return;
+	if (!handle)
+		return;
 	if (ti_GetSize(handle) == sizeof(bytes) &&
 		ti_Read(bytes, 1, sizeof(bytes), handle) == sizeof(bytes) &&
-		!memcmp(bytes, "UCS1", 4) && bytes[4] <= 1 &&
-		bytes[5] >= 2 && bytes[5] <= 7) {
+		!memcmp(bytes, "UCS1", 4) && bytes[4] <= 1 && bytes[5] >= 2 &&
+		bytes[5] <= 7) {
 		light_theme = bytes[4];
 		units_set_significant_digits(bytes[5]);
 	}
@@ -137,13 +146,18 @@ static void load_settings(void) {
 static void save_settings(void) {
 	uint8_t handle = ti_Open(SETTINGS_APPVAR, "w");
 	uint8_t bytes[6] = {85, 67, 83, 49, 0, 0};
-	if (!handle) return;
+	if (!handle)
+		return;
 	bytes[4] = light_theme;
 	bytes[5] = (uint8_t)units_significant_digits();
-	if (ti_Write(bytes, 1, sizeof(bytes), handle) != sizeof(bytes)) { ti_Close(handle); return; }
+	if (ti_Write(bytes, 1, sizeof(bytes), handle) != sizeof(bytes)) {
+		ti_Close(handle);
+		return;
+	}
 	ti_Close(handle);
 	handle = ti_Open(SETTINGS_APPVAR, "r");
-	if (!handle) return;
+	if (!handle)
+		return;
 	ti_SetGCBehavior(NULL, NULL);
 	ti_SetArchiveStatus(true, handle);
 	ti_Close(handle);
@@ -429,17 +443,20 @@ static void draw_bottom_menu(void) {
 	gfx_SetColor(COLOR_PANEL);
 	gfx_FillRectangle(0, 220, 320, 20);
 	for (index = 0; index < 5; index++) {
-		bool active = (index == 1 && page == PAGE_VARIABLES) ||
+		bool active =
+			(index == 1 && page == PAGE_VARIABLES) ||
 			(index == 2 && page == PAGE_DATABASE) ||
 			(index == 3 && page == PAGE_HELP) ||
 			(index == 4 && (page == PAGE_SETTINGS || page == PAGE_CREDITS));
-		// print_at(index == 0 && page != PAGE_CALCULATOR ? "Back" : labels[index],
-		// 		 16 + 64 * index, 225, active ? COLOR_ACCENT : COLOR_TEXT);
-		// center the text, given that each letter is approximately 8 pixels wide
+		// print_at(index == 0 && page != PAGE_CALCULATOR ? "Back" :
+		// labels[index], 		 16 + 64 * index, 225, active ? COLOR_ACCENT :
+		// COLOR_TEXT); center the text, given that each letter is approximately
+		// 8 pixels wide
 		int text_width = gfx_GetStringWidth(labels[index]);
 		// int x_offset = (64 - text_width) / 2;
 		print_at(index == 0 && page != PAGE_CALCULATOR ? "Back" : labels[index],
-				 32 + 64 * index - text_width / 2, 225, active ? COLOR_ACCENT : COLOR_TEXT);
+				 32 + 64 * index - text_width / 2, 225,
+				 active ? COLOR_ACCENT : COLOR_TEXT);
 	}
 }
 
@@ -566,7 +583,7 @@ static void draw_calculator(void) {
 		}
 	if (!history_count) {
 		if (database_ready)
-			print_at("Enter a quantity and unit :P", 8, 48-16, COLOR_MUTED);
+			print_at("Enter a quantity and unit :P", 8, 48 - 16, COLOR_MUTED);
 		else {
 			print_at("Database error:", 8, 42, COLOR_ACCENT);
 			draw_wrapped(database_error, 8, 63, 304, 3, COLOR_MUTED);
@@ -585,19 +602,26 @@ static void draw_calculator(void) {
 			 COLOR_MUTED);
 	print_at(">", 8, 177, COLOR_ACCENT);
 	draw_wrapped(input, 20, 177, 292, 2, COLOR_TEXT);
-	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 157, COLOR_ACCENT);
+	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270,
+			 157, COLOR_ACCENT);
 	cursor_location(&cursor_x, &cursor_y, 174);
 	gfx_SetColor(COLOR_ACCENT);
 	gfx_VertLine(cursor_x, cursor_y, 18);
 }
 
 static void set_theme(void) {
-	gfx_palette[COLOR_BACKGROUND] = light_theme ? gfx_RGBTo1555(245, 247, 250) : gfx_RGBTo1555(18, 22, 30);
-	gfx_palette[COLOR_PANEL] = light_theme ? gfx_RGBTo1555(222, 229, 238) : gfx_RGBTo1555(31, 38, 51);
-	gfx_palette[COLOR_TEXT] = light_theme ? gfx_RGBTo1555(28, 37, 49) : gfx_RGBTo1555(235, 239, 245);
-	gfx_palette[COLOR_MUTED] = light_theme ? gfx_RGBTo1555(80, 91, 106) : gfx_RGBTo1555(145, 156, 173);
-	gfx_palette[COLOR_ACCENT] = light_theme ? gfx_RGBTo1555(0, 112, 149) : gfx_RGBTo1555(82, 189, 214);
-	gfx_palette[COLOR_SELECTION] = light_theme ? gfx_RGBTo1555(192, 216, 229) : gfx_RGBTo1555(48, 65, 82);
+	gfx_palette[COLOR_BACKGROUND] =
+		light_theme ? gfx_RGBTo1555(245, 247, 250) : gfx_RGBTo1555(18, 22, 30);
+	gfx_palette[COLOR_PANEL] =
+		light_theme ? gfx_RGBTo1555(222, 229, 238) : gfx_RGBTo1555(31, 38, 51);
+	gfx_palette[COLOR_TEXT] =
+		light_theme ? gfx_RGBTo1555(28, 37, 49) : gfx_RGBTo1555(235, 239, 245);
+	gfx_palette[COLOR_MUTED] =
+		light_theme ? gfx_RGBTo1555(80, 91, 106) : gfx_RGBTo1555(145, 156, 173);
+	gfx_palette[COLOR_ACCENT] =
+		light_theme ? gfx_RGBTo1555(0, 112, 149) : gfx_RGBTo1555(82, 189, 214);
+	gfx_palette[COLOR_SELECTION] =
+		light_theme ? gfx_RGBTo1555(192, 216, 229) : gfx_RGBTo1555(48, 65, 82);
 }
 
 static void load_database_view(void) {
@@ -605,15 +629,20 @@ static void load_database_view(void) {
 	uint16_t size, i;
 	database_view_ready = false;
 	database_line_count = database_top = 0;
-	if (!handle) return;
+	if (!handle)
+		return;
 	size = ti_GetSize(handle);
 	if (!size || size >= DB_VIEW_CAPACITY ||
-		ti_Read(database_text, 1, size, handle) != size) { ti_Close(handle); return; }
+		ti_Read(database_text, 1, size, handle) != size) {
+		ti_Close(handle);
+		return;
+	}
 	ti_Close(handle);
 	database_text[size] = 0;
 	database_lines[database_line_count++] = 0;
 	for (i = 0; i < size; i++) {
-		if (database_text[i] == 13) database_text[i] = 0;
+		if (database_text[i] == 13)
+			database_text[i] = 0;
 		if (database_text[i] == 10) {
 			database_text[i] = 0;
 			if (i + 1 < size && database_line_count < DB_LINE_CAPACITY)
@@ -625,53 +654,101 @@ static void load_database_view(void) {
 
 static bool contains_query(const char *line, const char *query) {
 	const char *start;
-	if (!*query) return true;
+	if (!*query)
+		return true;
 	for (start = line; *start; start++) {
 		const char *a = start, *b = query;
-		while (*a && *b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) { a++; b++; }
-		if (!*b) return true;
+		while (*a && *b &&
+			   tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
+			a++;
+			b++;
+		}
+		if (!*b)
+			return true;
 	}
 	return false;
 }
 
 static unsigned database_match_count(void) {
-	uint16_t i; unsigned count = 0;
+	uint16_t i;
+	unsigned count = 0;
 	for (i = 0; i < database_line_count; i++)
-		if (contains_query(database_text + database_lines[i], input)) count++;
+		if (contains_query(database_text + database_lines[i], input))
+			count++;
 	return count;
 }
 
 static void change_page(page_t target) {
 	if (page == PAGE_CALCULATOR && target != PAGE_CALCULATOR) {
 		copy_text(saved_input, sizeof(saved_input), input);
-		saved_length = input_length; saved_cursor = cursor_position;
+		saved_length = input_length;
+		saved_cursor = cursor_position;
 	}
 	if (target == PAGE_CALCULATOR && page != PAGE_CALCULATOR) {
 		copy_text(input, sizeof(input), saved_input);
-		input_length = saved_length; cursor_position = saved_cursor;
-	} else if (target != PAGE_CALCULATOR) reset_input();
-	page = target; prompt_error[0] = 0;
-	if (target == PAGE_DATABASE) load_database_view();
-	if (target == PAGE_VARIABLES) { variable_stage = VARIABLE_NAME; selected_variable = -1; }
+		input_length = saved_length;
+		cursor_position = saved_cursor;
+	} else if (target != PAGE_CALCULATOR)
+		reset_input();
+	page = target;
+	prompt_error[0] = 0;
+	if (target == PAGE_DATABASE)
+		load_database_view();
+	if (target == PAGE_VARIABLES) {
+		variable_stage = VARIABLE_NAME;
+		selected_variable = -1;
+	}
 }
 
 static void edit_page_input(uint8_t key) {
 	char c;
-	if (key == sk_2nd) { alpha_mode = true; uppercase_once = !uppercase_once; return; }
-	if (key == sk_Alpha) { alpha_mode = !alpha_mode; uppercase_once = false; return; }
-	if (key == sk_Left) { if (cursor_position) cursor_position--; return; }
-	if (key == sk_Right) { if (cursor_position < input_length) cursor_position++; return; }
-	if (key == sk_Clear) { reset_input(); prompt_error[0] = 0; database_top = 0; return; }
+	if (key == sk_2nd) {
+		alpha_mode = true;
+		uppercase_once = !uppercase_once;
+		return;
+	}
+	if (key == sk_Alpha) {
+		alpha_mode = !alpha_mode;
+		uppercase_once = false;
+		return;
+	}
+	if (key == sk_Left) {
+		if (cursor_position)
+			cursor_position--;
+		return;
+	}
+	if (key == sk_Right) {
+		if (cursor_position < input_length)
+			cursor_position++;
+		return;
+	}
+	if (key == sk_Clear) {
+		reset_input();
+		prompt_error[0] = 0;
+		database_top = 0;
+		return;
+	}
 	if (key == sk_Del) {
 		if (cursor_position) {
-			memmove(input + cursor_position - 1, input + cursor_position, input_length - cursor_position + 1);
-			cursor_position--; input_length--;
+			memmove(input + cursor_position - 1, input + cursor_position,
+					input_length - cursor_position + 1);
+			cursor_position--;
+			input_length--;
 		}
-		database_top = 0; return;
+		database_top = 0;
+		return;
 	}
 	c = alpha_mode ? alpha_character(key) : number_character(key);
-	if (alpha_mode && c >= 65 && c <= 90) { if (!uppercase_once) c += 32; uppercase_once = false; }
-	if (c) { insert_character(c); prompt_error[0] = 0; database_top = 0; }
+	if (alpha_mode && c >= 65 && c <= 90) {
+		if (!uppercase_once)
+			c += 32;
+		uppercase_once = false;
+	}
+	if (c && (page != PAGE_DATABASE || input_length < 30)) {
+		insert_character(c);
+		prompt_error[0] = 0;
+		database_top = 0;
+	}
 }
 
 static void handle_variable_key(uint8_t key) {
@@ -683,34 +760,51 @@ static void handle_variable_key(uint8_t key) {
 		return;
 	}
 	if (key == sk_Up && count) {
-		if (selected_variable < 0) selected_variable = (int8_t)count - 1;
-		else if (selected_variable > 0) selected_variable--;
+		if (selected_variable < 0)
+			selected_variable = (int8_t)count - 1;
+		else if (selected_variable > 0)
+			selected_variable--;
 		return;
 	}
 	if (key == sk_Down && selected_variable >= 0) {
-		if ((unsigned)(selected_variable + 1) < count) selected_variable++; else selected_variable = -1;
+		if ((unsigned)(selected_variable + 1) < count)
+			selected_variable++;
+		else
+			selected_variable = -1;
 		return;
 	}
 	if (selected_variable >= 0) {
 		if (key == sk_Del) {
 			units_delete_variable((unsigned)selected_variable);
-			selected_variable = -1; return;
+			selected_variable = -1;
+			return;
 		}
 		if (key == sk_Enter) {
-			copy_text(variable_name, sizeof(variable_name), units_variable_name((unsigned)selected_variable));
-			copy_text(input, sizeof(input), units_variable_definition((unsigned)selected_variable));
+			copy_text(variable_name, sizeof(variable_name),
+					  units_variable_name((unsigned)selected_variable));
+			copy_text(input, sizeof(input),
+					  units_variable_definition((unsigned)selected_variable));
 			input_length = cursor_position = (uint8_t)strlen(input);
-			variable_stage = VARIABLE_VALUE; selected_variable = -1; return;
+			variable_stage = VARIABLE_VALUE;
+			selected_variable = -1;
+			return;
 		}
 		selected_variable = -1;
 	}
 	if (key == sk_Enter) {
 		if (variable_stage == VARIABLE_NAME) {
-			if (!units_validate_variable_name(input, prompt_error, sizeof(prompt_error))) return;
+			if (!units_validate_variable_name(input, prompt_error,
+											  sizeof(prompt_error)))
+				return;
 			copy_text(variable_name, sizeof(variable_name), input);
-			variable_stage = VARIABLE_VALUE; reset_input(); prompt_error[0] = 0;
-		} else if (units_set_variable(variable_name, input, prompt_error, sizeof(prompt_error))) {
-			variable_stage = VARIABLE_NAME; reset_input(); prompt_error[0] = 0;
+			variable_stage = VARIABLE_VALUE;
+			reset_input();
+			prompt_error[0] = 0;
+		} else if (units_set_variable(variable_name, input, prompt_error,
+									  sizeof(prompt_error))) {
+			variable_stage = VARIABLE_NAME;
+			reset_input();
+			prompt_error[0] = 0;
 		}
 		return;
 	}
@@ -718,49 +812,99 @@ static void handle_variable_key(uint8_t key) {
 }
 
 static void handle_key(uint8_t key) {
+	if (key == sk_2nd)
+		off_armed = true;
+	else
+		off_armed = false;
 	if (key == sk_Yequ) {
-		if (page == PAGE_CALCULATOR) quit_requested = true;
-		else change_page(PAGE_CALCULATOR);
+		if (page == PAGE_CALCULATOR)
+			quit_requested = true;
+		else
+			change_page(PAGE_CALCULATOR);
 		return;
 	}
-	if (key == sk_Window && page == PAGE_VARIABLES) return;
-	if (key == sk_Zoom && page == PAGE_DATABASE) return;
-	if (key == sk_Trace && page == PAGE_HELP) return;
-	if (key == sk_Graph && page == PAGE_SETTINGS) return;
-	if (key == sk_Window) { change_page(PAGE_VARIABLES); return; }
-	if (key == sk_Zoom) { change_page(PAGE_DATABASE); return; }
-	if (key == sk_Trace) { change_page(PAGE_HELP); return; }
-	if (key == sk_Graph) { change_page(PAGE_SETTINGS); return; }
-	if (key == sk_2nd && (page == PAGE_HELP || page == PAGE_SETTINGS || page == PAGE_CREDITS)) {
+	if (key == sk_Window && page == PAGE_VARIABLES)
+		return;
+	if (key == sk_Zoom && page == PAGE_DATABASE)
+		return;
+	if (key == sk_Trace && page == PAGE_HELP)
+		return;
+	if (key == sk_Graph && page == PAGE_SETTINGS)
+		return;
+	if (key == sk_Window) {
+		change_page(PAGE_VARIABLES);
+		return;
+	}
+	if (key == sk_Zoom) {
+		change_page(PAGE_DATABASE);
+		return;
+	}
+	if (key == sk_Trace) {
+		change_page(PAGE_HELP);
+		return;
+	}
+	if (key == sk_Graph) {
+		change_page(PAGE_SETTINGS);
+		return;
+	}
+	if (key == sk_2nd &&
+		(page == PAGE_HELP || page == PAGE_SETTINGS || page == PAGE_CREDITS)) {
 		uppercase_once = !uppercase_once;
 		return;
 	}
-	if (page == PAGE_CALCULATOR) { handle_calculator_key(key); return; }
-	if (page == PAGE_VARIABLES) { handle_variable_key(key); return; }
-	if (page == PAGE_DATABASE) {
-		if (key == sk_Up) { if (database_top) database_top--; return; }
-		if (key == sk_Down) { if (database_top + 1 < database_match_count()) database_top++; return; }
-		edit_page_input(key); return;
+	if (page == PAGE_CALCULATOR) {
+		handle_calculator_key(key);
+		return;
 	}
-	if (page == PAGE_CREDITS) { if (key == sk_Enter) change_page(PAGE_SETTINGS); return; }
+	if (page == PAGE_VARIABLES) {
+		handle_variable_key(key);
+		return;
+	}
+	if (page == PAGE_DATABASE) {
+		if (key == sk_Up) {
+			if (database_top)
+				database_top--;
+			return;
+		}
+		if (key == sk_Down) {
+			if (database_top + 1 < database_match_count())
+				database_top++;
+			return;
+		}
+		edit_page_input(key);
+		return;
+	}
+	if (page == PAGE_CREDITS) {
+		if (key == sk_Enter)
+			change_page(PAGE_SETTINGS);
+		return;
+	}
 	if (page == PAGE_SETTINGS) {
-		if (key == sk_Up && setting_selection) setting_selection--;
-		else if (key == sk_Down && setting_selection < 2) setting_selection++;
+		if (key == sk_Up && setting_selection)
+			setting_selection--;
+		else if (key == sk_Down && setting_selection < 2)
+			setting_selection++;
 		else if (key == sk_Left || key == sk_Right || key == sk_Enter) {
-			if (setting_selection == 0) { light_theme = !light_theme; set_theme(); }
-			else if (setting_selection == 1) {
+			if (setting_selection == 0) {
+				light_theme = !light_theme;
+				set_theme();
+			} else if (setting_selection == 1) {
 				unsigned digits = units_significant_digits();
-				if (key == sk_Left) digits = digits == 2 ? 7 : digits - 1;
-				else digits = digits == 7 ? 2 : digits + 1;
+				if (key == sk_Left)
+					digits = digits == 2 ? 7 : digits - 1;
+				else
+					digits = digits == 7 ? 2 : digits + 1;
 				units_set_significant_digits(digits);
-			} else change_page(PAGE_CREDITS);
+			} else
+				change_page(PAGE_CREDITS);
 		}
 	}
 }
 
 static void draw_page_header(void) {
 	gfx_FillScreen(COLOR_BACKGROUND);
-	gfx_SetColor(COLOR_PANEL); gfx_FillRectangle(0, 0, 320, 24);
+	gfx_SetColor(COLOR_PANEL);
+	gfx_FillRectangle(0, 0, 320, 24);
 	print_at("units", 8, 8, COLOR_TEXT);
 }
 
@@ -769,45 +913,68 @@ static void draw_variable_page(void) {
 	char line[INPUT_CAPACITY + 32];
 	int x, y;
 	draw_page_header();
-	if (!count) print_at("No session variables yet.", 8, 29, COLOR_MUTED);
+	if (!count)
+		print_at("No session variables yet.", 8, 29, COLOR_MUTED);
 	for (index = 0; index < count; index++) {
 		int row_y = 28 + (int)index * 15;
 		if ((int)index == selected_variable) {
-			gfx_SetColor(COLOR_SELECTION); gfx_FillRectangle(4, row_y - 2, 312, 15);
+			gfx_SetColor(COLOR_SELECTION);
+			gfx_FillRectangle(4, row_y - 2, 312, 15);
 		}
-		snprintf(line, sizeof(line), "%s = %s", units_variable_name(index), units_variable_definition(index));
+		snprintf(line, sizeof(line), "%s = %s", units_variable_name(index),
+				 units_variable_definition(index));
 		draw_wrapped(line, 8, row_y, 304, 1, COLOR_TEXT);
 	}
-	if (prompt_error[0]) draw_wrapped(prompt_error, 8, 151, 304, 1, COLOR_ACCENT);
-	// else print_at("Up/Down select; Enter edit; Del remove", 8, 151, COLOR_MUTED);
-	if (variable_stage == VARIABLE_NAME) print_at("Enter variable name:", 8, 169, COLOR_MUTED);
-	else { snprintf(line, sizeof(line), "Value of %s:", variable_name); print_at(line, 8, 169, COLOR_MUTED); }
-	print_at(">", 8, 188, COLOR_ACCENT); draw_wrapped(input, 20, 188, 292, 2, COLOR_TEXT);
-	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 169, COLOR_ACCENT);
-	cursor_location(&x, &y, 185); gfx_SetColor(COLOR_ACCENT); gfx_VertLine(x, y, 16);
+	if (prompt_error[0])
+		draw_wrapped(prompt_error, 8, 151, 304, 1, COLOR_ACCENT);
+	// else print_at("Up/Down select; Enter edit; Del remove", 8, 151,
+	// COLOR_MUTED);
+	if (variable_stage == VARIABLE_NAME)
+		print_at("Enter variable name:", 8, 169, COLOR_MUTED);
+	else {
+		snprintf(line, sizeof(line), "Value of %s:", variable_name);
+		print_at(line, 8, 169, COLOR_MUTED);
+	}
+	print_at(">", 8, 188, COLOR_ACCENT);
+	draw_wrapped(input, 20, 188, 292, 2, COLOR_TEXT);
+	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270,
+			 169, COLOR_ACCENT);
+	cursor_location(&x, &y, 185);
+	gfx_SetColor(COLOR_ACCENT);
+	gfx_VertLine(x, y, 16);
 }
 
 static void draw_database_page(void) {
-	uint16_t index; unsigned match = 0, shown = 0, total;
-	char line[INPUT_CAPACITY + 16]; int x, y;
+	uint16_t index;
+	unsigned match = 0, shown = 0, total;
+	char line[INPUT_CAPACITY + 16];
+	int x, y;
 	draw_page_header();
-	if (!database_view_ready) print_at("UNITDB is unavailable.", 8, 42, COLOR_ACCENT);
+	if (!database_view_ready)
+		print_at("UNITDB is unavailable.", 8, 42, COLOR_ACCENT);
 	total = database_match_count();
 	for (index = 0; index < database_line_count && shown < 7; index++) {
 		const char *value = database_text + database_lines[index];
-		if (!contains_query(value, input)) continue;
-		if (match++ < database_top) continue;
+		if (!contains_query(value, input))
+			continue;
+		if (match++ < database_top)
+			continue;
 		snprintf(line, sizeof(line), "%u %s", (unsigned)index + 1, value);
 		draw_wrapped(line, 8, 29 + (int)shown * 19, 304, 1, COLOR_TEXT);
 		shown++;
 	}
-	if (!total && database_view_ready) print_at("No matches.", 8, 46, COLOR_MUTED);
+	if (!total && database_view_ready)
+		print_at("No matches.", 8, 46, COLOR_MUTED);
 	snprintf(line, sizeof(line), "Search (%u matches):", total);
 	// print_at(line, 8, 165, COLOR_MUTED);
 	print_at(line, 8, 183, COLOR_MUTED);
-	print_at(">", 8, 201, COLOR_ACCENT); draw_wrapped(input, 20, 201, 292, 1, COLOR_TEXT);
-	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270, 183, COLOR_ACCENT);
-	cursor_location(&x, &y, 198); gfx_SetColor(COLOR_ACCENT); gfx_VertLine(x, y, 18);
+	print_at(">", 8, 201, COLOR_ACCENT);
+	draw_wrapped(input, 20, 201, 292, 1, COLOR_TEXT);
+	print_at(uppercase_once ? "(ABC)" : (alpha_mode ? "(abc)" : "(123)"), 270,
+			 183, COLOR_ACCENT);
+	cursor_location(&x, &y, 198);
+	gfx_SetColor(COLOR_ACCENT);
+	gfx_VertLine(x, y, 18);
 }
 
 static void draw_help_page(void) {
@@ -815,25 +982,32 @@ static void draw_help_page(void) {
 	print_at("Type unit expressions and press [enter].", 8, 30, COLOR_TEXT);
 	print_at("Example:", 8, 48, COLOR_MUTED);
 	print_at("    You have: 3 ft + 6 in", 8, 66, COLOR_MUTED);
-	print_at("    You want: m", 8, 66+18, COLOR_MUTED);
-	print_at("    Result: 3 ft + 6 in -> 1.067 m", 8, 66+18*2, COLOR_MUTED);
-	print_at("Controls:", 8, 106+18, COLOR_TEXT);
-	print_at("    [2nd]: Capitalize letters", 8, 106+18*2, COLOR_MUTED);
-	print_at("    [alpha]: Toggle text and nums/symbols", 8, 106+18*3, COLOR_MUTED);
-	print_at("    [up]/[down] to navigate history", 8, 106+18*4, COLOR_MUTED);
-	print_at("    [enter] while selecting to copy+paste", 8, 106+18*5, COLOR_MUTED);
+	print_at("    You want: m", 8, 66 + 18, COLOR_MUTED);
+	print_at("    Result: 3 ft + 6 in -> 1.067 m", 8, 66 + 18 * 2, COLOR_MUTED);
+	print_at("Controls:", 8, 106 + 18, COLOR_TEXT);
+	print_at("    [2nd]: Capitalize letters", 8, 106 + 18 * 2, COLOR_MUTED);
+	print_at("    [alpha]: Toggle text and nums/symbols", 8, 106 + 18 * 3,
+			 COLOR_MUTED);
+	print_at("    [up]/[down] to navigate history", 8, 106 + 18 * 4,
+			 COLOR_MUTED);
+	print_at("    [enter] while selecting to copy+paste", 8, 106 + 18 * 5,
+			 COLOR_MUTED);
 	// print_at("F1: calculator", 8, 204, COLOR_ACCENT);
 }
 
 static void draw_settings_page(void) {
-	char line[64]; int row;
+	char line[64];
+	int row;
 	draw_page_header();
-	for (row = 0; row < 3; row++) if (setting_selection == row) {
-		gfx_SetColor(COLOR_SELECTION); gfx_FillRectangle(4, 35 + row * 33, 312, 28);
-	}
+	for (row = 0; row < 3; row++)
+		if (setting_selection == row) {
+			gfx_SetColor(COLOR_SELECTION);
+			gfx_FillRectangle(4, 35 + row * 33, 312, 28);
+		}
 	snprintf(line, sizeof(line), "Theme: %s", light_theme ? "Light" : "Dark");
 	print_at(line, 12, 43, COLOR_TEXT);
-	snprintf(line, sizeof(line), "Significant digits: %u", units_significant_digits());
+	snprintf(line, sizeof(line), "Significant digits: %u",
+			 units_significant_digits());
 	print_at(line, 12, 76, COLOR_TEXT);
 	print_at("Credits", 12, 109, COLOR_TEXT);
 	// print_at("Up/Down select; Left/Right change", 8, 162, COLOR_MUTED);
@@ -844,29 +1018,43 @@ static void draw_settings_page(void) {
 static void draw_credits_page(void) {
 	draw_page_header();
 	print_at("By TheGrapeApe22", 8, 42, COLOR_MUTED);
-	print_at("For Dungewar", 8, 42+22, COLOR_MUTED);
-	print_at("Inspired by GNU Units", 8, 64+22, COLOR_MUTED);
-	print_at("Made with CE C Toolchain", 8, 64+22+22, COLOR_MUTED);
-	print_at("github.com/TheGrapeApe22/ti-84-units", 8, 86+22+22, COLOR_MUTED);
-	
+	print_at("For Dungewar", 8, 42 + 22, COLOR_MUTED);
+	print_at("Inspired by GNU Units", 8, 64 + 22, COLOR_MUTED);
+	print_at("Made with CE C Toolchain", 8, 64 + 22 + 22, COLOR_MUTED);
+	print_at("github.com/TheGrapeApe22/ti-84-units", 8, 86 + 22 + 22,
+			 COLOR_MUTED);
+
 	// print_at("Enter: Settings", 8, 177, COLOR_ACCENT);
 	// print_at("F1: calculator", 8, 199, COLOR_ACCENT);
 }
 
 static void draw_screen(void) {
 	switch (page) {
-	case PAGE_VARIABLES: draw_variable_page(); break;
-	case PAGE_DATABASE: draw_database_page(); break;
-	case PAGE_HELP: draw_help_page(); break;
-	case PAGE_SETTINGS: draw_settings_page(); break;
-	case PAGE_CREDITS: draw_credits_page(); break;
-	default: draw_calculator(); break;
+	case PAGE_VARIABLES:
+		draw_variable_page();
+		break;
+	case PAGE_DATABASE:
+		draw_database_page();
+		break;
+	case PAGE_HELP:
+		draw_help_page();
+		break;
+	case PAGE_SETTINGS:
+		draw_settings_page();
+		break;
+	case PAGE_CREDITS:
+		draw_credits_page();
+		break;
+	default:
+		draw_calculator();
+		break;
 	}
 	draw_bottom_menu();
 }
 
 int main(void) {
 	uint8_t key;
+	bool on_pressed;
 	database_ready = units_load(database_error, sizeof(database_error));
 	load_history();
 	load_settings();
@@ -880,9 +1068,12 @@ int main(void) {
 	gfx_SwapDraw();
 	for (;;) {
 		key = os_GetCSC();
-		if (key) {
+		if (key)
 			handle_key(key);
-			if (quit_requested) break;
+		on_pressed = boot_CheckOnPressed();
+		if (quit_requested || (off_armed && on_pressed))
+			break;
+		if (key) {
 			draw_screen();
 			gfx_SwapDraw();
 		}
